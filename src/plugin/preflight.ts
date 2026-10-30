@@ -1,6 +1,6 @@
 import type { Issue, PreflightResult, PrintSize } from '../shared/types'
 import type { PreflightThresholds } from '../shared/constants'
-import { imageDpiMinimum } from '../shared/constants'
+import { imageDpiMinimum, pxToMm } from '../shared/constants'
 import { rgbToCmyk } from '../shared/color'
 import { readPrintSize, printScale } from './printSize'
 import { multiply, maxScale, minScale, imagePixelMatrix, type Linear } from '../shared/geometry'
@@ -35,7 +35,7 @@ export async function runPreflight(options: PreflightOptions): Promise<Preflight
 
   for (const frame of frames) {
     const saved = readPrintSize(frame)
-    const size = saved.status === 'valid' ? saved.size : undefined
+    const size = saved.status === 'valid' ? saved.size : saved.status==='unset' ? {widthMm:pxToMm(frame.width),heightMm:pxToMm(frame.height)} : undefined
     if (!size) skippedFrames.push({ id: frame.id, name: frame.name, reason: saved.status === 'stale' ? '画板尺寸已变化，请重新确认成品尺寸' : '尚未设置成品尺寸' })
     const nodes: BaseNode[] = [frame]
     walk(frame, (n) => nodes.push(n))

@@ -1,5 +1,5 @@
 import type { FrameInfo, PrintSizeUpdate } from '../shared/types'
-import { preciseMm, integerMmInput, roundedPreset, sizeFitsRatio } from '../shared/printDimensions'
+import { preciseMm, integerMmInput, roundedPreset, sizeFitsRatio, matchingPrintPreset } from '../shared/printDimensions'
 
 export interface SizeDraft {
   width: string
@@ -8,8 +8,22 @@ export interface SizeDraft {
   heightPx: number
   editedAxis?: 'width'|'height'
   freeRatio?: boolean
+  automatic?: boolean
 }
 export type SizeDrafts = Record<string, SizeDraft>
+
+export function fillMatchingPresets(frames:FrameInfo[],previous:SizeDrafts):SizeDrafts {
+  const next={...previous}
+  for(const frame of frames) {
+    const draft=next[frame.id]
+    if(frame.printSizeStatus!=='unset' || frame.printSize || (draft && !draft.automatic))continue
+    if(draft && draft.widthPx===frame.widthPx && draft.heightPx===frame.heightPx)continue
+    const preset=matchingPrintPreset(frame.widthPx,frame.heightPx)
+    if(preset)next[frame.id]={width:String(preset.w),height:String(preset.h),widthPx:frame.widthPx,heightPx:frame.heightPx,automatic:true}
+    else if(draft?.automatic)delete next[frame.id]
+  }
+  return next
+}
 
 export function draftValues(frame: FrameInfo, draft?: SizeDraft): SizeDraft {
   return draft ?? {width:frame.printSize ? preciseMm(frame.printSize.widthMm) : '',
@@ -21,7 +35,7 @@ export function changeSize(frame: FrameInfo, value: string, axis: 'width'|'heigh
   const current=previous?.widthPx===frame.widthPx && previous.heightPx===frame.heightPx ? previous : undefined
   // Link the first edit; editing the other dimension explicitly sets a custom ratio.
   if(free || current?.freeRatio || (current?.editedAxis && current.editedAxis!==axis))
-    return {...draftValues(frame,previous),[axis]:value,widthPx:frame.widthPx,heightPx:frame.heightPx,editedAxis:axis,freeRatio:true}
+    return {...draftValues(frame,previous),[axis]:value,widthPx:frame.widthPx,heightPx:frame.heightPx,editedAxis:axis,freeRatio:true,automatic:false}
   const canonical=frame.printSizeStatus==='valid' ? frame.printSize : roundedPreset(frame.widthPx,frame.heightPx)
   const number = Number(value), ratio = canonical ? canonical.heightMm/canonical.widthMm : frame.heightPx / frame.widthPx
   const other = value !== '' && Number.isFinite(number) && number > 0

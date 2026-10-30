@@ -44,9 +44,18 @@ add(hidden,node('RECTANGLE',{name:'隐藏图片',fills:[{type:'IMAGE',imageHash:
 globalThis.figma={currentPage:page,mixed:Symbol(),listAvailableFontsAsync:async()=>[{fontName:font}],loadFontAsync:async()=>{},getImageByHash:()=>({getSizeAsync:async()=>({width:1000,height:1000})})}
 const run=dpi=>runPreflight({target:'selection',thresholds:{...DEFAULT_THRESHOLDS,targetDpi:dpi},safetyMargin:3})
 let result=await run(300)
-assert.equal(result.complete,false);assert.equal(result.skippedFrames.length,1)
-assert(!result.issues.some(i=>['low-dpi','tiny-text','thin-line','safe-area'].includes(i.type)))
-assert.equal(result.issues.find(i=>i.type==='four-color-black').severity,'info')
+assert.equal(result.complete,true);assert.equal(result.skippedFrames.length,0)
+assert.match(result.issues.find(i=>i.type==='low-dpi').message,/144 DPI/,'unset artwork is checked at the detected 72-DPI physical scale')
+assert(!result.issues.some(i=>['tiny-text','thin-line'].includes(i.type)))
+assert(result.issues.some(i=>i.type==='safe-area'))
+assert(!result.issues.some(i=>i.type==='four-color-black'),'12pt detected text exceeds the small-text threshold')
+assert.equal(readPrintSize(frame).status,'unset','preflight does not persist the detected size')
+text.fontSize=4
+frame.children.find(n=>n.name==='细线').strokeWeight=0.1
+result=await run(300)
+assert(result.issues.some(i=>i.type==='tiny-text'));assert(result.issues.some(i=>i.type==='thin-line'))
+text.fontSize=12
+frame.children.find(n=>n.name==='细线').strokeWeight=0.5
 savePrintSize(frame,{widthMm:100,heightMm:100})
 assert.equal(readPrintSize(frame).status,'valid');assert.equal(requirePrintSize(frame).widthMm,100)
 result=await run(300);assert.equal(result.complete,true);assert(!result.issues.some(i=>i.type==='low-dpi'))

@@ -1,9 +1,8 @@
 import React from 'react'
 import type { FrameInfo } from '../../shared/types'
 import { draftValues, draftError, type SizeDrafts } from '../sizeDrafts'
-import { SIZE_PRESETS } from '../../shared/constants'
 import type { PrintSize } from '../../shared/types'
-import { integerMmInput, originalSizeForPrint } from '../../shared/printDimensions'
+import { integerMmInput, originalSizeForPrint, PRINT_SIZE_OPTIONS } from '../../shared/printDimensions'
 
 export function PrintSizeCard({frames,drafts,errors,disabled,saving,onChange,onSave,onPreset,showResizeOriginal,resizeOriginal,onResizeOriginal,scaleContent,onScaleContent}: {
   frames:FrameInfo[]
@@ -21,12 +20,18 @@ export function PrintSizeCard({frames,drafts,errors,disabled,saving,onChange,onS
   onScaleContent:(value:boolean)=>void
 }) {
   const changed = frames.some(frame=>!!drafts[frame.id])
+  const configured = frames.length>0 && !changed && frames.every(frame=>frame.printSizeStatus==='valid')
+  const selectedPreset=frames.length ? PRINT_SIZE_OPTIONS.find(p=>frames.every(frame=>{
+    const values=draftValues(frame,drafts[frame.id])
+    return Number(values.width)===p.w && Number(values.height)===p.h
+  })) : undefined
   return <div className="card print-size-editor">
-    <div className="card-title">打印成品尺寸</div>
+    <div className="card-title">设置实际印刷尺寸</div>
     {frames.length>0 && <div className="field">
-      <select id="size-preset" className="select" aria-label="画板尺寸预设" value="" disabled={disabled} onChange={e=>{
-        const p=SIZE_PRESETS.find(p=>p.name===e.target.value);if(p)onPreset({widthMm:p.w,heightMm:p.h})
-      }}><option value="">自定义尺寸</option>{SIZE_PRESETS.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</select>
+      <select id="size-preset" className="select" aria-label="画板尺寸预设" value={selectedPreset?.name??''} disabled={disabled} onChange={e=>{
+        const p=PRINT_SIZE_OPTIONS.find(p=>p.name===e.target.value);if(p)onPreset({widthMm:p.w,heightMm:p.h})
+        else for(const frame of frames){onChange(frame,'','width');onChange(frame,'','height')}
+      }}><option value="">自定义尺寸</option>{PRINT_SIZE_OPTIONS.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</select>
     </div>}
     {frames.length===0 ? <div className="hint">请先选中原稿画板。</div> : frames.map(frame=>{
       const draft = drafts[frame.id], values = draftValues(frame,draft)
@@ -39,7 +44,7 @@ export function PrintSizeCard({frames,drafts,errors,disabled,saving,onChange,onS
         <div className="print-size-head">
           <span className="print-size-name">{frame.name}</span>
           {needsConfirm ? <button className="btn-ghost size-status warning" disabled={disabled} onClick={()=>onChange(frame,values.width,'width')}>重新确认</button>
-            : <span className={`size-status ${draft ? 'warning' : ''}`}>{draft ? '未保存' : frame.printSizeStatus==='valid' ? '已设置' : '未设置'}</span>}
+            : <span className={`size-status ${draft ? 'warning' : ''}`}>{draft ? '未设置' : frame.printSizeStatus==='valid' ? '已设置' : '未设置'}</span>}
         </div>
         <div className="row">
           <div className="field"><label className="field-label" htmlFor={`print-width-${frame.id}`}>宽度 (mm)</label>
@@ -48,9 +53,10 @@ export function PrintSizeCard({frames,drafts,errors,disabled,saving,onChange,onS
             <input id={`print-height-${frame.id}`} className="input" type="number" min="1" step="1" value={integerMmInput(values.height)} disabled={disabled} aria-invalid={!!error} onChange={e=>onChange(frame,e.target.value,'height')} /></div>
         </div>
         {error && <div className="size-error" role="alert">{error}</div>}
+        {draft?.automatic && !needsConfirm && <div className="size-note">已按比例匹配预置尺寸，请确认后点击“设置尺寸”。</div>}
         {target && <div className="size-note size-resize-preview">{target.widthPx===frame.widthPx && target.heightPx===frame.heightPx
           ? `比例一致，原稿保持 ${Math.round(frame.widthPx)} × ${Math.round(frame.heightPx)} px。`
-          : `保存后原稿：${target.widthPx} × ${target.heightPx} px。`}</div>}
+          : `设置后原稿：${target.widthPx} × ${target.heightPx} px。`}</div>}
       </div>
     })}
     <div className="size-save">
@@ -59,8 +65,7 @@ export function PrintSizeCard({frames,drafts,errors,disabled,saving,onChange,onS
         {resizeOriginal && <label className="check-line"><input type="checkbox" checked={scaleContent} disabled={disabled} onChange={e=>onScaleContent(e.target.checked)} /><span>等比缩放内容</span></label>}
         {resizeOriginal && <div className="size-note">保留原宽度，调整高度为整数像素；内容按需等比缩放。</div>}
       </>}
-      {!showResizeOriginal && frames.length>0 && <div className="size-note">仅设置成品毫米尺寸，原稿和内容保持原尺寸。</div>}
-      <button className="btn btn-primary" disabled={!changed || disabled} onClick={onSave}>{saving ? '正在保存…' : '保存尺寸'}</button>
+      <button className="btn btn-primary" disabled={!changed || disabled} onClick={onSave}>{saving ? '正在设置…' : configured ? '已设置' : '设置尺寸'}</button>
     </div>
   </div>
 }

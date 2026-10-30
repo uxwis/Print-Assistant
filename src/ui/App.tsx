@@ -5,8 +5,7 @@ import { MarksPanel } from './components/MarksPanel'
 import { FrameSizeCard } from './components/FrameSizeCard'
 import { PrintSizeCard } from './components/PrintSizeCard'
 import { SizeSummary } from './components/SizeSummary'
-import { Segmented } from './components/controls'
-import { changeSize, draftError, hasSizeRatioMismatch, sizeUpdate, type SizeDrafts } from './sizeDrafts'
+import { changeSize, draftError, hasSizeRatioMismatch, sizeUpdate, fillMatchingPresets, type SizeDrafts } from './sizeDrafts'
 import { displayMm, sizeFitsRatio } from '../shared/printDimensions'
 import { ExportPanel } from './components/ExportPanel'
 import { DEFAULT_MARKS_CONFIG } from '../shared/constants'
@@ -18,7 +17,7 @@ import { BUILTIN_PROFILES, type PrintProfile } from './color/icc'
 type Tab = 'preflight' | 'frames' | 'export'
 
 export default function App() {
-  const [tab,setTab] = React.useState<Tab>('preflight')
+  const [tab,setTab] = React.useState<Tab>('frames')
   const [frameMode,setFrameMode] = React.useState<'existing'|'new'>('existing')
   const [frameBusy,setFrameBusy] = React.useState(false)
   const [frames,setFrames] = React.useState<FrameInfo[]>([])
@@ -55,7 +54,11 @@ export default function App() {
     const off = onMessage(msg=>{
       switch(msg.type) {
         case 'frame-info':
-          if (msg.payload.target==='selection') setFrames(msg.payload.frames)
+          if (msg.payload.target==='selection') {
+            setFrames(msg.payload.frames)
+            setDrafts(previous=>fillMatchingPresets(msg.payload.frames,previous))
+            if(msg.payload.frames.length)setFrameMode('existing')
+          }
           break
         case 'print-sizes-result': {
           const result = msg.payload as PrintSizesResult & {requestId:number}
@@ -63,12 +66,12 @@ export default function App() {
           setSaving(false);pendingSave.current=null
           if (result.errors.length) {
             setSizeErrors(Object.fromEntries(result.errors.map(error=>[error.frameId,error.message])))
-            showToast('尺寸未保存，请检查标出的画板',true)
+            showToast('尺寸设置失败，请检查标出的画板',true)
           } else {
             setDrafts(previous=>{
               const next={...previous};for (const id of result.frameIds) delete next[id];return next
             })
-            setSizeErrors({});invalidate();showToast(`已保存 ${result.frameIds.length} 个画板的尺寸`)
+            setSizeErrors({});invalidate();showToast(`已设置 ${result.frameIds.length} 个画板的尺寸`)
           }
           break
         }
@@ -116,8 +119,9 @@ export default function App() {
     if(!needsRatioAdjustment){setResizeOriginal(false);setScaleContent(false)}
   },[needsRatioAdjustment])
 
+  const preflightBlocked=frames.some(f=>f.printSizeStatus==='stale' || (f.printSizeStatus==='valid' && !!drafts[f.id]))
   function runPreflight() {
-    if (unsaved || !frames.length || saving || frameBusy) return
+    if (preflightBlocked || !frames.length || saving || frameBusy) return
     const requestId=++pfRequest.current
     setPreflight(null);setPfLoading(true)
     send('run-preflight',{target:'selection',dpi,safetyMargin:marksConfig.safetyMargin,requestId})
@@ -155,14 +159,14 @@ export default function App() {
       else if(!adjustOriginal && !sizeFitsRatio(frame.widthPx,frame.heightPx,{widthMm:Number(draft.width),heightMm:Number(draft.height)}))errors[frame.id]='此尺寸与原稿比例不同，请启用“按成品比例调整原稿”'
     }
     setSizeErrors(errors)
-    if (Object.keys(errors).length) {showToast('尺寸未保存，请检查标出的画板',true);return}
+    if (Object.keys(errors).length) {showToast('尺寸设置失败，请检查标出的画板',true);return}
     const requestId=++saveRequest.current
     pendingSave.current={requestId};setSaving(true)
     send('set-print-sizes',{requestId,updates:changed.map(frame=>sizeUpdate(frame,drafts[frame.id])),options:{resizeOriginal:adjustOriginal,scaleContent:adjustOriginal && scaleContent}})
   }
   function openSizes() {setFrameMode('existing');setTab('frames')}
   const busy=pfLoading||exportLoading||saving||frameBusy
-  const sizes=<SizeSummary frames={frames} unsaved={unsaved} onEdit={openSizes} disabled={busy} reference={tab==='export'} />
+  const sizes=<SizeSummary frames={frames} unsaved={unsaved} onEdit={openSizes} disabled={busy} />
   return <>
     <nav className="tabs" aria-label="插件页面">
       {([{id:'frames',label:'画板'},{id:'preflight',label:'预检'},{id:'export',label:'导出'}] as const).map(t=><button
@@ -170,14 +174,23 @@ export default function App() {
     </nav>
     <div className={`content ${tab==='export'?'content-export':''}`}>
       {tab==='frames' && <>
-        <div className="field"><Segmented value={frameMode} onChange={setFrameMode} disabled={busy} options={[{value:'new',label:'新建画板'},{value:'existing',label:'已有画板'}]} /></div>
-        {frameMode==='existing' ? <PrintSizeCard frames={frames} drafts={drafts} errors={sizeErrors} disabled={busy} saving={saving} onChange={editSize} onSave={saveSizes}
+        {frames.length>0 ? <PrintSizeCard frames={frames} drafts={drafts} errors={sizeErrors} disabled={busy} saving={saving} onChange={editSize} onSave={saveSizes}
           onPreset={choosePreset} showResizeOriginal={needsRatioAdjustment} resizeOriginal={adjustOriginal} onResizeOriginal={toggleResizeOriginal} scaleContent={scaleContent} onScaleContent={setScaleContent} />
-          : <FrameSizeCard action="create" count={frames.length} disabled={busy} onBusy={setFrameBusy} />}
+          : frameMode==='new' ? <div className="frame-create">
+            <button className="btn-ghost frame-back" disabled={busy} onClick={()=>setFrameMode('existing')}>← 返回</button>
+            <FrameSizeCard action="create" count={0} disabled={busy} onBusy={setFrameBusy} />
+          </div> : <div className="frame-empty">
+            <svg className="frame-empty-icon" width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M11 5v26M25 5v26M5 11h26M5 25h26" />
+            </svg>
+            <div className="empty-title">请先选择原稿画板</div>
+            <p>选中后即可设置实际印刷尺寸</p>
+            <div className="frame-empty-action"><span>还没有画板？</span><button className="btn-ghost" disabled={busy} onClick={()=>setFrameMode('new')}>新建画板</button></div>
+          </div>}
       </>}
       {tab==='preflight' && <PreflightPanel profile={profile} result={preflight} loading={pfLoading||exportLoading||saving||frameBusy}
         onRun={runPreflight} onSelect={id=>send('select-node',{nodeId:id})} onFix={id=>send('fix-rich-black',{nodeId:id})}
-        sizes={sizes} dpi={dpi} unsaved={unsaved} hasSelection={frames.length>0} />}
+        sizes={sizes} dpi={dpi} blocked={preflightBlocked} hasSelection={frames.length>0} />}
       {tab==='export' && <ExportPanel onExport={doExport} loading={exportLoading||saving||frameBusy}
         dpi={dpi} onDpi={setDpi} profileId={profileId} onProfileId={setProfileId} profile={profile}
         onImportProfile={p=>setCustomProfile({...p,id:'custom'})} sizes={sizes} sizesReady={sizesReady} mode={mode}

@@ -59,7 +59,7 @@ export function PreflightPanel({
   onFix,
   sizes,
   dpi,
-  unsaved,
+  blocked,
   hasSelection,
 }: {
   profile?: PrintProfile
@@ -70,14 +70,14 @@ export function PreflightPanel({
   onFix: (id: string) => void
   sizes: React.ReactNode
   dpi: number
-  unsaved: boolean
+  blocked: boolean
   hasSelection: boolean
 }) {
   return (
     <div>
       {sizes}
       <div className="card">
-        <button className="btn btn-primary" onClick={onRun} disabled={loading || unsaved || !hasSelection}>
+        <button className="btn btn-primary" onClick={onRun} disabled={loading || blocked || !hasSelection}>
           {loading ? <span className="spin" /> : '开始预检'}
         </button>
         <div className="hint">

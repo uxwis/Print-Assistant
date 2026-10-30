@@ -1,4 +1,5 @@
 import { PDFArray, PDFDict, PDFNumber, PDFRawStream, PDFName, decodePDFRawStream, type PDFObject } from 'pdf-lib'
+import { calculatorFunction } from './calculatorFunction'
 
 export function numbers(obj:PDFObject|undefined): number[] {
   if (!(obj instanceof PDFArray)) throw new Error('PDF 数组无效')
@@ -18,7 +19,7 @@ export function number(dict:PDFDict,key:string,fallback?:number): number {
 }
 const clamp=(n:number,a:number,b:number)=>Math.max(a,Math.min(b,n))
 
-// Only bounded one-input sampled, exponential and stitching functions are accepted.
+// Bounded one-input sampled, exponential, stitching and calculator functions.
 export function pdfFunction(obj:PDFObject|undefined): {domain:number[];evaluate:(x:number)=>number[]} {
   if (obj instanceof PDFArray) {
     const functions: {domain:number[];evaluate:(x:number)=>number[]}[]=[]
@@ -31,6 +32,7 @@ export function pdfFunction(obj:PDFObject|undefined): {domain:number[];evaluate:
   const type=number(dict,'FunctionType'), domain=numbers(dict.lookup(PDFName.of('Domain')))
   if(domain.length!==2 || domain[1]<=domain[0]) throw new Error('暂不支持多维或无效渐变函数')
   const rangeObj=dict.lookup(PDFName.of('Range')), range=rangeObj ? numbers(rangeObj) : undefined
+  if(range && (!range.length || range.length%2 || range.some((v,i)=>i%2===1 && v<range[i-1])))throw new Error('PDF 渐变输出范围无效')
   let evaluate:(x:number)=>number[]
   if (type===2) {
     const c0Obj=dict.lookup(PDFName.of('C0')),c1Obj=dict.lookup(PDFName.of('C1'))
@@ -72,6 +74,9 @@ export function pdfFunction(obj:PDFObject|undefined): {domain:number[];evaluate:
         return decode[2*c]+value*(decode[2*c+1]-decode[2*c])
       })
     }
+  } else if(type===4 && obj instanceof PDFRawStream) {
+    if(!range || range.length>8)throw new Error('PDF Type 4 渐变输出范围无效')
+    evaluate=calculatorFunction(decodePDFRawStream(obj).decode(),range.length/2)
   } else throw new Error(`暂不支持 PDF 渐变函数类型 ${type}`)
   return {domain,evaluate:x=>{
     const values=evaluate(clamp(x,domain[0],domain[1]))

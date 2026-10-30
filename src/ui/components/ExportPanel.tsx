@@ -52,7 +52,7 @@ export function ExportPanel({ onExport, loading, marks, marksConfig, dpi, onDpi,
         <button className="btn btn-primary" onClick={onExport} disabled={loading || !profile || !sizesReady}>
           {loading ? <><span className="spin" /> 正在导出…</> : '导出 CMYK PDF'}
         </button>
-        {!sizesReady && <div className="hint export-selection-hint">请选中原稿，并保存修改或确认失效的尺寸。</div>}
+        {!sizesReady && <div className="hint export-selection-hint">请选中原稿，并设置尺寸或重新确认失效的尺寸。</div>}
       </div>
     </div>
   )

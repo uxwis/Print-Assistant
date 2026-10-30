@@ -70,7 +70,7 @@ export function FrameSizeCard({action,count,disabled,onBusy}: {action:'create'|'
       <button className={`btn ${action==='create' ? 'btn-primary' : ''}`} disabled={!valid || loading || (action==='resize' && count===0)} onClick={()=>run(action==='create' ? 'create-frame' : 'resize-frame')}>
         {loading ? '正在处理…' : action==='create' ? '新建画板' : '调整选中画板'}</button>
       </fieldset>
-      <div className="hint">{action==='create' ? '尺寸不含出血，新画板自动保存成品尺寸。' : '会改变原稿画板大小，并同步保存成品尺寸。'}</div>
+      <div className="hint">{action==='create' ? '尺寸不含出血，新画板自动设置成品尺寸。' : '会改变原稿画板大小，并同步设置成品尺寸。'}</div>
       {message && <div className="hint" role="status">{message}</div>}
     </div>
   )

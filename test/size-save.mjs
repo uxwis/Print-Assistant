@@ -2,6 +2,25 @@ import {build} from 'esbuild'
 import {Script,createContext} from 'node:vm'
 import assert from 'node:assert/strict'
 
+const presetBuild=await build({entryPoints:['src/ui/sizeDrafts.ts'],bundle:true,format:'iife',globalName:'draftsApi',write:false})
+const presetContext=createContext({})
+new Script(presetBuild.outputFiles[0].text).runInContext(presetContext)
+const {fillMatchingPresets,changeSize}=presetContext.draftsApi
+const info=(id,w,h,status='unset',printSize)=>({id,name:id,widthPx:w,heightPx:h,printSizeStatus:status,printSize})
+const presetFrames=[info('card',900,540),info('portrait',540,900),info('a4',595,842),info('rotated',842,595),info('scaled',2100,2970),info('custom',780,500),info('saved',900,540,'valid',{widthMm:180,heightMm:108}),info('stale',595,842,'stale',{widthMm:210,heightMm:297})]
+const auto=fillMatchingPresets(presetFrames,{})
+for(const [id,w,h] of [['card','90','54'],['portrait','54','90'],['a4','210','297'],['rotated','297','210'],['scaled','210','297']]) {
+ assert.equal(auto[id].width,w);assert.equal(auto[id].height,h);assert(auto[id].automatic)
+}
+for(const id of ['custom','saved','stale'])assert.equal(auto[id],undefined)
+const edited=changeSize(presetFrames[0],'180','width',false,auto.card)
+assert.equal(fillMatchingPresets([presetFrames[0]],{card:edited}).card.width,'180','manual entry survives selection refresh')
+const cleared=changeSize(presetFrames[0],'','width',false,auto.card)
+assert.equal(fillMatchingPresets([presetFrames[0]],{card:cleared}).card.width,'','cleared custom input stays empty')
+assert.equal(fillMatchingPresets([info('card',780,500)],auto).card,undefined,'changed unmatched geometry removes only automatic drafts')
+assert.equal(fillMatchingPresets([info('card',540,900)],auto).card.width,'54','automatic suggestions follow changed orientation')
+assert.equal(auto.card.width,'90','previous state stays immutable')
+
 // Exercise the real message dispatcher, replacing only expensive PDF generation.
 const built=await build({entryPoints:['src/code.ts'],bundle:true,platform:'browser',write:false,
  define:{__html__:JSON.stringify('<html></html>')},plugins:[{name:'capture-export',setup(build){

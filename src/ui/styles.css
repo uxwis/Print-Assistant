@@ -364,7 +364,6 @@ summary:focus-visible {
   color: var(--warning);
 }
 .size-save {
-  border-top: 1px solid var(--border);
   margin-top: 8px;
   padding-top: 18px;
 }
@@ -608,6 +607,35 @@ summary:focus-visible {
   color: var(--text);
   font-weight: 500;
   margin-bottom: 5px;
+}
+.frame-empty {
+  padding: 76px 0 40px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.frame-empty-icon {
+  display: block;
+  margin: 0 auto 20px;
+  color: #a1a1aa;
+}
+.frame-empty p {
+  margin: 6px 0 24px;
+}
+.frame-empty-action {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.frame-back {
+  margin-bottom: 20px;
+}
+.frame-create > .card {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
 }
 .softproof-heading {
   gap: 8px;

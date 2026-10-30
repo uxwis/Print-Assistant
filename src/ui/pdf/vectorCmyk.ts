@@ -48,11 +48,11 @@ class VectorConversion {
   }
   async init() {
     const converter=await createIccConverter(this.profile);this.converters.push(converter)
-    this.rgb=this.spec('srgb',3,converter)
+    this.rgb={...this.spec('srgb',3,converter),space:name('DeviceRGB')}
     this.gray={key:'gray',channels:1,space:name('DeviceGray'),convert:v=>this.rgb.convert([v[0],v[0],v[0]]),samples:b=>{
       const rgb=new Uint8Array(b.length*3);for(let i=0;i<b.length;i++) rgb.fill(b[i],i*3,i*3+3);return converter.toCmyk(rgb)
     }}
-    this.cmyk={key:'target-cmyk',channels:4,convert:v=>v,samples:b=>b}
+    this.cmyk={key:'target-cmyk',channels:4,space:name('DeviceCMYK'),convert:v=>v,samples:b=>b}
   }
   dispose(){for(const converter of this.converters) converter.dispose()}
   private spec(key:object|string,channels:number,converter:Converter):ColorSpec {
@@ -87,8 +87,11 @@ class VectorConversion {
     const result={source:merged,out:this.doc.context.obj({}) as PDFDict,mask}
     if(!mask)this.add(result,'ColorSpace','PrintCMYK',this.colorSpace)
     else {
-      const defaultGray=this.resource(result,'ColorSpace','DefaultGray')
-      if(defaultGray)this.add(result,'ColorSpace','DefaultGray',defaultGray)
+      // Luminosity is computed in the source blending space, not the print ICC.
+      for(const key of ['DefaultGray','DefaultRGB','DefaultCMYK']) {
+        const value=this.resource(result,'ColorSpace',key)
+        if(value)this.add(result,'ColorSpace',key,value)
+      }
     }
     return result
   }
@@ -127,7 +130,6 @@ class VectorConversion {
     const stencil=stream.dict.lookup(name('ImageMask'))===PDFBool.True
     const spec=stencil?this.gray:await this.color(stream.dict.lookup(name('ColorSpace')),scope)
     const mask=scope.mask||stencil
-    if(mask&&spec.channels!==1)throw new Error('暂不支持非灰度蒙版图片')
     const list=this.images.get(stream)??[]
     let work=list.find(w=>w.mask===mask)
     if(work && work.spec.key!==spec.key)throw new Error('共享图片的颜色资源不一致')
@@ -193,7 +195,7 @@ class VectorConversion {
         if(!(state instanceof PDFDict))throw new Error('PDF 透明度资源无效')
         this.checkBlend(state)
         const mask=this.maskForm(state)
-        if(mask)await enter(mask.stream,mask.luminosity)
+        if(mask)await enter(mask.stream,scope.mask||mask.luminosity)
       }
     }
     if(stack.length)throw new Error('PDF 图形状态不平衡')
@@ -254,7 +256,6 @@ class VectorConversion {
     if(type!==2&&type!==3)throw new Error(`暂不支持 PDF 网格／复杂渐变（类型 ${type}）`)
     const spec=await this.color(dict.lookup(name('ColorSpace')),scope)
     if(scope.mask) {
-      if(spec.channels!==1)throw new Error('暂不支持彩色亮度蒙版渐变')
       return this.doc.context.obj({...literal(dict),ColorSpace:spec.space??name('DeviceGray')})
     }
     const source=pdfFunction(dict.lookup(name('Function'))),count=1024,rgb:number[]=[]
@@ -279,7 +280,6 @@ class VectorConversion {
       newGroup=this.doc.context.obj(literal(group)) as PDFDict
       const groupSpace=group.lookup(name('CS'))
       if(mask) {
-        if(groupSpace && (await this.color(groupSpace,scope)).channels!==1)throw new Error('暂不支持彩色亮度蒙版')
         if(groupSpace)newGroup.set(name('CS'),(await this.color(groupSpace,scope)).space??name('DeviceGray'))
       } else newGroup.set(name('CS'),this.colorSpace)
     }
@@ -295,9 +295,9 @@ class VectorConversion {
     if(mask) {
       const original=dict.lookup(name('SMask')) as PDFDict
       const output=this.doc.context.obj(literal(original)) as PDFDict
-      output.set(name('G'),await this.form(mask.stream,scope,state,mask.luminosity,depth))
+      output.set(name('G'),await this.form(mask.stream,scope,state,scope.mask||mask.luminosity,depth))
       const backdrop=original.lookup(name('BC'))
-      if(backdrop && !mask.luminosity) {
+      if(backdrop && !mask.luminosity && !scope.mask) {
         const group=mask.stream.dict.lookup(name('Group'))
         const spec=await this.color(group instanceof PDFDict ? group.lookup(name('CS'))??name('DeviceRGB') : name('DeviceRGB'),scope)
         output.set(name('BC'),this.doc.context.obj(spec.convert(numbers(backdrop))))
@@ -327,7 +327,6 @@ class VectorConversion {
         const spec=sourceName==='Pattern' ? {key:'pattern',channels:0,convert:()=>[],samples:(b:Uint8Array)=>b} : await this.color(name(sourceName),scope)
         if(fill)state.fill=spec;else state.stroke=spec
         if(scope.mask) {
-          if(spec.channels!==1)throw new Error('暂不支持此亮度蒙版颜色空间')
           const original=this.resource(scope,'ColorSpace',sourceName)
           if(original)this.add(scope,'ColorSpace',sourceName,original)
           out.push(emitInstruction(ins))
@@ -337,7 +336,6 @@ class VectorConversion {
       if(['rg','RG','g','G','k','K'].includes(op)) {
         const spec=op.toLowerCase()==='rg'?await this.color(name('DeviceRGB'),scope):op.toLowerCase()==='g'?await this.color(name('DeviceGray'),scope):await this.color(name('DeviceCMYK'),scope)
         if(fill)state.fill=spec;else state.stroke=spec
-        if(scope.mask&&spec.channels!==1)throw new Error('暂不支持彩色亮度蒙版内容')
         out.push(scope.mask ? emitInstruction(ins) : emitColor(instructionNumbers(ins),spec,fill));continue
       }
       if(['sc','SC','scn','SCN'].includes(op)) {
@@ -352,7 +350,6 @@ class VectorConversion {
           const key=`PrintPattern${++this.sequence}`;this.add(scope,'Pattern',key,converted)
           out.push(`/${key} ${op}`)
         } else {
-          if(scope.mask&&spec.channels!==1)throw new Error('暂不支持彩色亮度蒙版内容')
           out.push(scope.mask ? emitInstruction(ins) : emitColor(instructionNumbers(ins),spec,fill))
         }
         continue
